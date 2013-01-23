@@ -1,0 +1,159 @@
+<!doctype>
+
+<!--
+Database name shouldn't be hardcoded.
+
+How does can.route really work? i.e. why do I magically get a song/ part added
+to the URL?
+
+SongList should probably trigger an event for App to watch, and leave App to
+change the route.
+
+couch.js seems to be blocking. Maybe I should use something else, or maybe I'm
+using it wrong.
+-->
+
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <title>CanJS</title>
+        <style>
+            body {
+                padding: 0;
+            }
+            .songs {
+                background-color: #eee;
+                float: left;
+                width: 25%;
+                height: 100%;
+                margin-right: 1em;
+            }
+            .songs li {
+                cursor: pointer;
+            }
+            .songs li:hover {
+                text-decoration: underline;
+            }
+        </style>
+    </head>
+    <body>
+
+        <div id="app">
+            <div class="songs"></div>
+            <div class="song">
+                <h1 class="title"></h1>
+            </div>
+        </div>
+
+        <script src="/_utils/script/couch.js"></script>
+        <script src="jquery-1.8.3.min.js"></script>
+        <script src="can.custom.js"></script>
+
+        <script id="t_songs" type="text/mustache">
+            <ul>
+                {{#songs}}
+                <li {{data "song"}}>{{title}}</li>
+                {{/songs}}
+            </ul>
+        </script>
+
+        <script>
+
+            /** Songs model.
+            */
+            var Songs = can.Model({
+
+                init: function(db) {
+                    console.log("Songs.init");
+                    this.db = db;
+                },
+
+                findAll: function() {
+                    console.log("Songs.findAll");
+                    var d = new can.Deferred();
+                    var r = this.db.view("songs/by_type", {key: "song", include_docs: true});
+                    d.resolve($.map(r.rows, function(row) { return row.doc; }));
+                    return d;
+                },
+
+                findOne: function(params) {
+                    console.log("Songs.findOne");
+                    var d = new can.Deferred();
+                    var doc = this.db.open(params.id);
+                    d.resolve(doc);
+                    return d;
+                }
+            });
+
+            /** Song list control.
+                Renders a list of song titles and changes the route when
+                someone clicks on one.
+            */
+            var SongList = can.Control({
+
+                init: function() {
+                    console.log("SongList.init");
+                    var songList = this;
+                    songList.options.model.findAll().then(function(data) {
+                        songList.element.html(can.view("#t_songs", {songs: data}));
+                    });
+                },
+
+                "li click": function(li) {
+                    console.log("SongList.li click");
+                    var song = can.data(li, "song");
+                    can.route.attr({id: song._id});
+                }
+            });
+
+            /** Song details.
+                Displays the selected song.
+            */
+            var SongDetails = can.Control({
+                setSong: function(song) {
+                    console.log("SongDetails.setSong", song);
+                    if (song == null ) {
+                        this.element.hide();
+                    } else {
+                        this.element.find(".title").text(song.title);
+                        this.element.show();
+                    }
+                }
+            });
+
+            /** Main application.
+                Manages models and the interaction between the controls that
+                make up the application.
+            */
+            var App = can.Control({
+
+                init: function() {
+                    console.log("App.init");
+                    this.db = new CouchDB("songs");
+                    this.songs = new Songs(this.db);
+                    this.songList = new SongList(this.element.find(".songs"), {model: this.songs});
+                    this.songDetails = new SongDetails(this.element.find(".song"), {model: this.songs});
+                },
+
+                "route": function() {
+                    console.log("App.route");
+                    this.songDetails.setSong(null);
+                },
+
+                "song/:id route": function(data) {
+                    console.log("App.route song/:id", data);
+                    var app = this;
+                    app.songs.findOne(data).then(function(song) {
+                        app.songDetails.setSong(song);
+                    });
+                }
+            });
+
+            $(function() {
+                var app = new App("#app");
+            });
+
+        </script>
+
+    </body>
+</html>
